@@ -6,9 +6,9 @@ jobs:
   build:
     docker:
       # specify the version
-      - image: circleci/golang:1.9
+      - image: circleci/golang:1.14
 
-    working_directory: /go/src/github.com/ddollar/forego
+    working_directory: /go/src/github.com/bugficks/forego
 
     environment:
       TEST_RESULTS: /tmp/test-results
@@ -21,9 +21,9 @@ jobs:
       # For capturing test results
       - run: go get github.com/jstemmer/go-junit-report
       - run: mkdir -p $TEST_RESULTS
-      
-      # specify any bash command here prefixed with `run: `   
-      - run: 
+
+      # specify any bash command here prefixed with `run: `
+      - run:
           name: Run unit tests
           command: |
             trap "go-junit-report <${TEST_RESULTS}/forego-tests.log > ${TEST_RESULTS}/forego-tests-report.xml" EXIT
@@ -32,14 +32,14 @@ jobs:
       - store_artifacts:
           path: /tmp/test-results
           destination: raw-test-output
-        
+
       - store_test_results:
           path: /tmp/test-results
   release:
     docker:
-      - image: circleci/golang:1.9
+      - image: circleci/golang:1.14
 
-    working_directory: /go/src/github.com/ddollar/forego
+    working_directory: /go/src/github.com/bugficks/forego
 
     steps:
       - checkout
@@ -53,9 +53,9 @@ workflows:
   deployment:
     jobs:
       - build
-      - release:
-          requires: 
-          - build
-          filters:
-            branches:
-              only: master
+      # - release:
+      #     requires:
+      #     - build
+      #     filters:
+      #       branches:
+      #         only: master
