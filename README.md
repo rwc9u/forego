@@ -1,18 +1,20 @@
 ## forego
++ https://github.com/ddollar/forego/pull/105
++ https://github.com/ddollar/forego/pull/124
 
-<a href="https://circleci.com/gh/ddollar/forego">
-  <img align="right" src="https://circleci.com/gh/ddollar/forego.svg?style=svg">
+<a href="https://circleci.com/gh/bugficks/forego">
+  <img align="right" src="https://circleci.com/gh/bugficks/forego.svg?style=svg">
 </a>
 
 [Foreman](https://github.com/ddollar/foreman) in Go.
 
 ### Installation
 
-[Downloads](https://dl.equinox.io/ddollar/forego/stable)
+[Downloads](https://github.com/bugficks/forego/releases)
 
 ##### Compile from Source
 
-    $ go get -u github.com/ddollar/forego
+    $ go get -u github.com/bugficks/forego
 
 ### Usage
 
