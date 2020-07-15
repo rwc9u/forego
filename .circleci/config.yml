@@ -43,19 +43,43 @@ jobs:
 
     steps:
       - checkout
-      - run: go get github.com/daviddengcn/go-colortext
-      - run: go get github.com/subosito/gotenv
-
       - run: make release
+      - run: echo "export VERSION=$(git describe --tags)" >> VERSION
+      - persist_to_workspace:
+          root: .
+          paths:
+            - VERSION
+            - release/*
+
+  publish-github-release:
+    docker:
+      - image: cibuilds/github:0.10
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: "Publish Release on GitHub"
+          command: |
+            source VERSION
+            ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -delete ${VERSION} ./release/
+
 
 workflows:
   version: 2
   deployment:
     jobs:
       - build
-      # - release:
-      #     requires:
-      #     - build
-      #     filters:
-      #       branches:
-      #         only: master
+      - release:
+          requires:
+          - build
+          # filters:
+          #   branches:
+          #     only: master
+      - publish-github-release:
+          requires:
+            - release
+          filters:
+            # branches:
+            #   ignore: /.*/
+            tags:
+              only: /^\d+\.\d+\.\d+$/
