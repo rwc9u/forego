@@ -52,4 +52,8 @@ test: lint build
 	go test -v -race -cover ./...
 
 $(BIN): $(SRC)
+ifeq ("$(GOOS)-$(GOARCH)","linux-amd")
 	go build -ldflags "${LDFLAGS} ${LDFLAGS_EXTRA}" -o $@
+else
+	go build -ldflags "${LDFLAGS}" -o $@
+endif
