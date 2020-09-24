@@ -1,5 +1,3 @@
-github.com/bugficks/forego v0.16.1 h1:umgkq/eJKmztdtmXvB/6SU31ib5stvRT5xu/SICMHt0=
-github.com/bugficks/forego v0.16.1/go.mod h1:HnsJdwSm5tFdIR1Tg0jeykfADsMC4kdKm0mKerH1nQM=
 github.com/daviddengcn/go-colortext v0.0.0-20150719211842-3b18c8575a43 h1:WOjNHsegRa6W+i7+V0g9GlGTKj5c2CzvENZBOYLYxMQ=
 github.com/daviddengcn/go-colortext v0.0.0-20150719211842-3b18c8575a43/go.mod h1:dv4zxwHi5C/8AeI+4gX4dCWOIvNi7I6JCSX0HvlKPgE=
 github.com/subosito/gotenv v0.1.0 h1:qrPfMw+dkLrA77HtD6S3ppWB9JjV8jhKMmeSpnuvd3Q=
