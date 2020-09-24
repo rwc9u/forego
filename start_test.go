@@ -1,8 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"io/ioutil"
 	"os"
+	"regexp"
 	"testing"
+	"time"
 )
 
 func TestParseConcurrencyFlagEmpty(t *testing.T) {
@@ -171,5 +175,42 @@ func TestConfigBeOverrideByForegoFile(t *testing.T) {
 
 	if gracetime != 30 {
 		t.Fatalf("gracetime should be 3, got %d", gracetime)
+	}
+}
+
+func TestStartProcess(t *testing.T) {
+	of := NewOutletFactory()
+	of.LeftFormatter = fmt.Sprintf("%%-%ds | ", 20)
+	procFileEntry := ProcfileEntry{Name: "testproc", Command: "sleep 1"}
+	env := Env{}
+	f := &Forego{
+		outletFactory: of,
+	}
+	rescueStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	go f.monitorInterrupt()
+	f.teardown.FallHook = func() {
+		go func() {
+			time.Sleep(time.Duration(flagShutdownGraceTime) * time.Second)
+			of.SystemOutput("Grace time expired")
+			f.teardownNow.Fall()
+		}()
+	}
+
+	f.startProcess(5000, 0, 0, procFileEntry, env, of)
+	f.startProcess(5000, 0, 1, procFileEntry, env, of)
+
+	<-f.teardown.Barrier()
+	f.wg.Wait()
+
+	w.Close()
+	out, _ := ioutil.ReadAll(r)
+	os.Stdout = rescueStdout
+	match, _ := regexp.MatchString("(?is)port 5000.*port 5001", string(out))
+
+	if match != true {
+		t.Fatalf("Did not see consecutive ports for concurrent processes, got %s", out)
 	}
 }

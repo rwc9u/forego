@@ -186,7 +186,7 @@ func basePort(env Env) (int, error) {
 
 func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, env Env, of *OutletFactory) {
 
-	port := basePort + (idx * 100)
+	port := basePort + (idx * 100) + procNum
 
 	const interactive = false
 	workDir := filepath.Dir(flagProcfile)
