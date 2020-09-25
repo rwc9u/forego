@@ -22,6 +22,7 @@ var flagPort int
 var flagConcurrency string
 var flagRestart bool
 var flagShutdownGraceTime int
+var flagReverseProxyPort int
 var envs envFiles
 var colorize bool
 
@@ -61,10 +62,15 @@ The following options are available:
                being asked to stop. Once this grace time expires, the process is
                forcibly terminated. By default, it is 3 seconds.
 
+  -x reverse_proxy_port
+               Enables a reverse proxy for web processes. A port
+               must be provided. If more than one web process is started
+               then requests are round-robined between the various processes.
+
 If there is a file named .forego in the current directory, it will be read in
 the same way as an environment file, and the values of variables procfile, port,
-concurrency, and shutdown_grace_time used to change the corresponding default
-values.
+concurrency, reverse_proxy_port, and shutdown_grace_time used to change the
+corresponding default values.
 
 Examples:
 
@@ -86,6 +92,7 @@ func init() {
 	cmdStart.Flag.StringVar(&flagProcfile, "f", "Procfile", "procfile")
 	cmdStart.Flag.Var(&envs, "e", "env")
 	cmdStart.Flag.IntVar(&flagPort, "p", defaultPort, "port")
+	cmdStart.Flag.IntVar(&flagReverseProxyPort, "x", 0, "proxyport")
 	cmdStart.Flag.StringVar(&flagConcurrency, "c", "", "concurrency")
 	cmdStart.Flag.BoolVar(&flagRestart, "r", false, "restart")
 	cmdStart.Flag.IntVar(&flagShutdownGraceTime, "t", defaultShutdownGraceTime, "shutdown grace time")
@@ -184,9 +191,13 @@ func basePort(env Env) (int, error) {
 	return defaultPort, nil
 }
 
-func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, env Env, of *OutletFactory) {
+func processPort(basePort, idx, procNum int) int {
+	return basePort + (idx * 100) + procNum
+}
 
-	port := basePort + (idx * 100) + procNum
+func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, env Env, of *OutletFactory) {
+	Println(flagReverseProxyPort)
+	port := processPort(basePort, idx, procNum)
 
 	const interactive = false
 	workDir := filepath.Dir(flagProcfile)
@@ -315,6 +326,7 @@ func runStart(cmd *Command, args []string) {
 
 	for idx, proc := range pf.Entries {
 		numProcs := defaultConcurrency
+		serverPorts := []int{}
 		if len(concurrency) > 0 {
 			if value, ok := concurrency[proc.Name]; ok {
 				numProcs = value
@@ -324,8 +336,14 @@ func runStart(cmd *Command, args []string) {
 		}
 		for i := 0; i < numProcs; i++ {
 			if (singleton == "") || (singleton == proc.Name) {
+				serverPorts = append(serverPorts, processPort(basePort, idx, i))
 				f.startProcess(basePort, idx, i, proc, env, of)
 			}
+		}
+
+		if flagReverseProxyPort > 0 && proc.Name == "web" {
+			of.SystemOutput(fmt.Sprintf("Starting reverse proxy on port %d", flagReverseProxyPort))
+			go f.startProxy(flagReverseProxyPort, serverPorts, of)
 		}
 	}
 
