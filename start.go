@@ -152,11 +152,15 @@ func parseConcurrency(value string) (map[string]int, error) {
 	return concurrency, nil
 }
 
+// A Forego type carries a Context, OutletFactory, and WaitGroup across process monitoring
+// boundaries. See https://medium.com/@cep21/how-to-correctly-use-context-context-in-go-1-7-8f2c0fafdf39 for the rationale for maintainng
+// the context in a struct. The global signal for shutting down seems similar to the discussion
+// for maintaining a context in message.
 type Forego struct {
 	outletFactory *OutletFactory
 
-	teardown       context.Context // signal shutting down
-	teardownCancel context.CancelFunc
+	ctx    context.Context // signal shutting down
+	cancel context.CancelFunc
 
 	wg sync.WaitGroup
 }
@@ -171,7 +175,7 @@ func (f *Forego) monitorInterrupt() {
 			fmt.Println("      | ctrl-c detected")
 			fallthrough
 		default:
-			f.teardownCancel()
+			f.cancel()
 		}
 	}
 }
@@ -222,7 +226,7 @@ func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, en
 
 	err = ps.Start()
 	if err != nil {
-		f.teardownCancel()
+		f.cancel()
 		of.SystemOutput(fmt.Sprint("Failed to start ", procName, ": ", err))
 		return
 	}
@@ -244,10 +248,10 @@ func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, en
 			if flagRestart {
 				f.startProcess(basePort, idx, procNum, proc, env, of)
 			} else {
-				f.teardownCancel()
+				f.cancel()
 			}
 
-		case <-f.teardown.Done():
+		case <-f.ctx.Done():
 			// Forego tearing down
 
 			if !osHaveSigTerm {
@@ -294,9 +298,9 @@ func runStart(cmd *Command, args []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	f := &Forego{
-		outletFactory:  of,
-		teardown:       ctx,
-		teardownCancel: cancel,
+		outletFactory: of,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	go f.monitorInterrupt()
@@ -342,7 +346,7 @@ func runStart(cmd *Command, args []string) {
 		}
 	}
 
-	<-f.teardown.Done()
+	<-f.ctx.Done()
 
 	f.wg.Wait()
 }
