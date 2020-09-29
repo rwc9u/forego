@@ -186,21 +186,19 @@ func TestStartProcess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	f := &Forego{
-		outletFactory:  of,
-		teardown:       ctx,
-		teardownCancel: cancel,
+		outletFactory: of,
 	}
 
 	rescueStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	go f.monitorInterrupt()
+	go f.monitorInterrupt(cancel)
 
-	f.startProcess(5000, 0, 0, procFileEntry, env, of)
-	f.startProcess(5000, 0, 1, procFileEntry, env, of)
+	f.startProcess(ctx, cancel, 5000, 0, 0, procFileEntry, env, of)
+	f.startProcess(ctx, cancel, 5000, 0, 1, procFileEntry, env, of)
 
-	<-f.teardown.Done()
+	<-ctx.Done()
 	f.wg.Wait()
 
 	w.Close()

@@ -161,7 +161,7 @@ type Forego struct {
 	wg sync.WaitGroup
 }
 
-func (f *Forego) monitorInterrupt() {
+func (f *Forego) monitorInterrupt(cancel context.CancelFunc) {
 	handler := make(chan os.Signal, 1)
 	signal.Notify(handler, syscall.SIGALRM, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 
@@ -171,7 +171,7 @@ func (f *Forego) monitorInterrupt() {
 			fmt.Println("      | ctrl-c detected")
 			fallthrough
 		default:
-			f.teardownCancel()
+			cancel()
 		}
 	}
 }
@@ -191,7 +191,7 @@ func processPort(basePort, idx, procNum int) int {
 	return basePort + (idx * 100) + procNum
 }
 
-func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, env Env, of *OutletFactory) {
+func (f *Forego) startProcess(ctx context.Context, cancel context.CancelFunc, basePort, idx, procNum int, proc ProcfileEntry, env Env, of *OutletFactory) {
 	port := processPort(basePort, idx, procNum)
 
 	const interactive = false
@@ -222,7 +222,7 @@ func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, en
 
 	err = ps.Start()
 	if err != nil {
-		f.teardownCancel()
+		cancel()
 		of.SystemOutput(fmt.Sprint("Failed to start ", procName, ": ", err))
 		return
 	}
@@ -242,12 +242,12 @@ func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, en
 		select {
 		case <-finished:
 			if flagRestart {
-				f.startProcess(basePort, idx, procNum, proc, env, of)
+				f.startProcess(ctx, cancel, basePort, idx, procNum, proc, env, of)
 			} else {
-				f.teardownCancel()
+				cancel()
 			}
 
-		case <-f.teardown.Done():
+		case <-ctx.Done():
 			// Forego tearing down
 
 			if !osHaveSigTerm {
@@ -256,16 +256,16 @@ func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, en
 				return
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(),
+			ctxTimeout, cancelTimeout := context.WithTimeout(context.Background(),
 				time.Duration(flagShutdownGraceTime)*time.Second)
-			defer cancel()
+			defer cancelTimeout()
 
 			of.SystemOutput(fmt.Sprintf("sending SIGTERM to %s", procName))
 			ps.SendSigTerm()
 
 			// Give the process a chance to exit, otherwise kill it.
 			select {
-			case <-ctx.Done():
+			case <-ctxTimeout.Done():
 				of.SystemOutput("Grace time expired")
 				of.SystemOutput(fmt.Sprintf("Killing %s", procName))
 				ps.SendSigKill()
@@ -293,13 +293,9 @@ func runStart(cmd *Command, args []string) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	f := &Forego{
-		outletFactory:  of,
-		teardown:       ctx,
-		teardownCancel: cancel,
-	}
+	f := &Forego{outletFactory: of}
 
-	go f.monitorInterrupt()
+	go f.monitorInterrupt(cancel)
 
 	var singleton string = ""
 	if len(args) > 0 {
@@ -332,7 +328,7 @@ func runStart(cmd *Command, args []string) {
 		for i := 0; i < numProcs; i++ {
 			if (singleton == "") || (singleton == proc.Name) {
 				serverPorts = append(serverPorts, processPort(basePort, idx, i))
-				f.startProcess(basePort, idx, i, proc, env, of)
+				f.startProcess(ctx, cancel, basePort, idx, i, proc, env, of)
 			}
 		}
 
@@ -342,7 +338,7 @@ func runStart(cmd *Command, args []string) {
 		}
 	}
 
-	<-f.teardown.Done()
+	<-ctx.Done()
 
 	f.wg.Wait()
 }
