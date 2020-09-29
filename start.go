@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -151,10 +152,15 @@ func parseConcurrency(value string) (map[string]int, error) {
 	return concurrency, nil
 }
 
+// A Forego type carries a Context, OutletFactory, and WaitGroup across process monitoring
+// boundaries. See https://medium.com/@cep21/how-to-correctly-use-context-context-in-go-1-7-8f2c0fafdf39 for the rationale for maintainng
+// the context in a struct. The global signal for shutting down seems similar to the discussion
+// for maintaining a context in message.
 type Forego struct {
 	outletFactory *OutletFactory
 
-	teardown, teardownNow Barrier // signal shutting down
+	ctx    context.Context // signal shutting down
+	cancel context.CancelFunc
 
 	wg sync.WaitGroup
 }
@@ -163,19 +169,13 @@ func (f *Forego) monitorInterrupt() {
 	handler := make(chan os.Signal, 1)
 	signal.Notify(handler, syscall.SIGALRM, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 
-	first := true
-
 	for sig := range handler {
 		switch sig {
 		case syscall.SIGINT:
 			fmt.Println("      | ctrl-c detected")
 			fallthrough
 		default:
-			f.teardown.Fall()
-			if !first {
-				f.teardownNow.Fall()
-			}
-			first = false
+			f.cancel()
 		}
 	}
 }
@@ -196,7 +196,6 @@ func processPort(basePort, idx, procNum int) int {
 }
 
 func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, env Env, of *OutletFactory) {
-	Println(flagReverseProxyPort)
 	port := processPort(basePort, idx, procNum)
 
 	const interactive = false
@@ -227,7 +226,7 @@ func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, en
 
 	err = ps.Start()
 	if err != nil {
-		f.teardown.Fall()
+		f.cancel()
 		of.SystemOutput(fmt.Sprint("Failed to start ", procName, ": ", err))
 		return
 	}
@@ -249,10 +248,10 @@ func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, en
 			if flagRestart {
 				f.startProcess(basePort, idx, procNum, proc, env, of)
 			} else {
-				f.teardown.Fall()
+				f.cancel()
 			}
 
-		case <-f.teardown.Barrier():
+		case <-f.ctx.Done():
 			// Forego tearing down
 
 			if !osHaveSigTerm {
@@ -261,12 +260,17 @@ func (f *Forego) startProcess(basePort, idx, procNum int, proc ProcfileEntry, en
 				return
 			}
 
+			ctx, cancel := context.WithTimeout(context.Background(),
+				time.Duration(flagShutdownGraceTime)*time.Second)
+			defer cancel()
+
 			of.SystemOutput(fmt.Sprintf("sending SIGTERM to %s", procName))
 			ps.SendSigTerm()
 
 			// Give the process a chance to exit, otherwise kill it.
 			select {
-			case <-f.teardownNow.Barrier():
+			case <-ctx.Done():
+				of.SystemOutput("Grace time expired")
 				of.SystemOutput(fmt.Sprintf("Killing %s", procName))
 				ps.SendSigKill()
 			case <-finished:
@@ -291,20 +295,15 @@ func runStart(cmd *Command, args []string) {
 	of := NewOutletFactory()
 	of.LeftFormatter = fmt.Sprintf("%%-%ds | ", pf.LongestProcessName(concurrency))
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	f := &Forego{
 		outletFactory: of,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	go f.monitorInterrupt()
-
-	// When teardown fires, start the grace timer
-	f.teardown.FallHook = func() {
-		go func() {
-			time.Sleep(time.Duration(flagShutdownGraceTime) * time.Second)
-			of.SystemOutput("Grace time expired")
-			f.teardownNow.Fall()
-		}()
-	}
 
 	var singleton string = ""
 	if len(args) > 0 {
@@ -347,7 +346,7 @@ func runStart(cmd *Command, args []string) {
 		}
 	}
 
-	<-f.teardown.Barrier()
+	<-f.ctx.Done()
 
 	f.wg.Wait()
 }
