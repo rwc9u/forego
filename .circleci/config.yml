@@ -6,80 +6,12 @@ jobs:
   build:
     docker:
       # specify the version
-      - image: circleci/golang:1.14
+      - image: circleci/golang:1.9
 
-    working_directory: /go/src/github.com/bugficks/forego
-
-    environment:
-      TEST_RESULTS: /tmp/test-results
-
+    working_directory: /go/src/github.com/rwc9u/forego
     steps:
       - checkout
-      - run: go get github.com/daviddengcn/go-colortext
-      - run: go get github.com/subosito/gotenv
-
-      # For capturing test results
-      - run: go get github.com/jstemmer/go-junit-report
-      - run: mkdir -p $TEST_RESULTS
 
       # specify any bash command here prefixed with `run: `
-      - run:
-          name: Run unit tests
-          command: |
-            trap "go-junit-report <${TEST_RESULTS}/forego-tests.log > ${TEST_RESULTS}/forego-tests-report.xml" EXIT
-            make test | tee ${TEST_RESULTS}/forego-tests.log
-
-      - store_artifacts:
-          path: /tmp/test-results
-          destination: raw-test-output
-
-      - store_test_results:
-          path: /tmp/test-results
-  release:
-    docker:
-      - image: circleci/golang:1.14
-
-    working_directory: /go/src/github.com/bugficks/forego
-
-    steps:
-      - checkout
-      - run: make release
-      - run: echo "export VERSION=$(git describe --tags)" >> VERSION
-      - persist_to_workspace:
-          root: .
-          paths:
-            - VERSION
-            - release/*
-
-  publish-github-release:
-    docker:
-      - image: cibuilds/github:0.10
-    steps:
-      - attach_workspace:
-          at: .
-      - run:
-          name: "Publish Release on GitHub"
-          command: |
-            source VERSION
-            ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -delete ${VERSION} ./release/
-
-
-workflows:
-  version: 2
-  deployment:
-    jobs:
-      - build
-      - release:
-          requires:
-          - build
-          # filters:
-          #   branches:
-          #     only: master
-      - publish-github-release:
-          requires:
-            - release
-          filters:
-            # branches:
-            #   ignore: /.*/
-            tags:
-              only: /^\d+\.\d+\.\d+$/
+      - run: go get -v -t -d ./...
+      - run: go test -v ./...
