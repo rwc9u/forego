@@ -1,12 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"regexp"
 	"testing"
-	"time"
 )
 
 func TestParseConcurrencyFlagEmpty(t *testing.T) {
@@ -183,26 +183,24 @@ func TestStartProcess(t *testing.T) {
 	of.LeftFormatter = fmt.Sprintf("%%-%ds | ", 20)
 	procFileEntry := ProcfileEntry{Name: "testproc", Command: "sleep 1"}
 	env := Env{}
+	ctx, cancel := context.WithCancel(context.Background())
+
 	f := &Forego{
-		outletFactory: of,
+		outletFactory:  of,
+		teardown:       ctx,
+		teardownCancel: cancel,
 	}
+
 	rescueStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
 	go f.monitorInterrupt()
-	f.teardown.FallHook = func() {
-		go func() {
-			time.Sleep(time.Duration(flagShutdownGraceTime) * time.Second)
-			of.SystemOutput("Grace time expired")
-			f.teardownNow.Fall()
-		}()
-	}
 
 	f.startProcess(5000, 0, 0, procFileEntry, env, of)
 	f.startProcess(5000, 0, 1, procFileEntry, env, of)
 
-	<-f.teardown.Barrier()
+	<-f.teardown.Done()
 	f.wg.Wait()
 
 	w.Close()
